@@ -176,20 +176,26 @@ class ElasticSearchIndex(BaseIndex):
             )
         logger.info(f"Indexed {successes:d} documents")
 
-    def search(self, query: str, k=10) -> SearchResults:
+    def search(self, query: str, k=10, request_timeout=None) -> SearchResults:
         """Find the nearest examples indices to the query.
 
         Args:
             query (`str`): The query as a string.
             k (`int`): The number of examples to retrieve.
+            request_timeout (`Optional[int]`): The timeout for the request to the Elasticsearch server. (default: `None`)
 
         Ouput:
             scores (`List[List[float]`): The retrieval scores of the retrieved examples.
             indices (`List[List[int]]`): The indices of the retrieved examples.
         """
+        kwargs = {}
+        if request_timeout is not None:
+            kwargs["request_timeout"] = request_timeout
+
         response = self.es_client.search(
             index=self.es_index_name,
             body={"query": {"multi_match": {"query": query, "fields": ["text"], "type": "cross_fields"}}, "size": k},
+            **kwargs,
         )
         hits = response["hits"]["hits"]
         return SearchResults([hit["_score"] for hit in hits], [int(hit["_id"]) for hit in hits])
@@ -667,7 +673,8 @@ class IndexableMixin:
         """
         del self._indexes[index_name]
 
-    def search(self, index_name: str, query: Union[str, np.array], k: int = 10) -> SearchResults:
+    def search(self, index_name: str, query: Union[str, np.array], k: int = 10, request_timeout: Optional[int] = None
+               ) -> SearchResults:
         """Find the nearest examples indices in the dataset to the query.
 
         Args:
@@ -677,13 +684,15 @@ class IndexableMixin:
                 The query as a string if `index_name` is a text index or as a numpy array if `index_name` is a vector index.
             k (`int`):
                 The number of examples to retrieve.
+            request_timeout (`Optional[int]`):
+                The timeout for the request to the Elasticsearch server. (default: `None`)
 
         Returns:
             - scores (`List[List[float]`): The retrieval scores of the retrieved examples.
             - indices (`List[List[int]]`): The indices of the retrieved examples.
         """
         self._check_index_is_initialized(index_name)
-        return self._indexes[index_name].search(query, k)
+        return self._indexes[index_name].search(query, k, request_timeout)
 
     def search_batch(self, index_name: str, queries: Union[List[str], np.array], k: int = 10) -> BatchedSearchResults:
         """Find the nearest examples indices in the dataset to the query.
@@ -704,7 +713,7 @@ class IndexableMixin:
         return self._indexes[index_name].search_batch(queries, k)
 
     def get_nearest_examples(
-        self, index_name: str, query: Union[str, np.array], k: int = 10
+        self, index_name: str, query: Union[str, np.array], k: int = 10, request_timeout: Optional[int] = None
     ) -> NearestExamplesResults:
         """Find the nearest examples in the dataset to the query.
 
@@ -715,13 +724,15 @@ class IndexableMixin:
                 The query as a string if `index_name` is a text index or as a numpy array if `index_name` is a vector index.
             k (`int`):
                 The number of examples to retrieve.
+            request_timeout (`Optional[int]`):
+                The timeout for the request to the Elasticsearch server. (default: `None`)
 
         Returns:
             - scores (`List[float]`): The retrieval scores of the retrieved examples.
             - examples (`dict`): The retrieved examples.
         """
         self._check_index_is_initialized(index_name)
-        scores, indices = self.search(index_name, query, k)
+        scores, indices = self.search(index_name, query, k, request_timeout)
         top_indices = [i for i in indices if i >= 0]
         return NearestExamplesResults(scores[: len(top_indices)], self[top_indices])
 
